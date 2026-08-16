@@ -1,123 +1,918 @@
-## UI v26
-
-Sidebar semplificata: brand cliccabile per logout/login, workspace card rimossa e indicatore blu laterale ripristinato su hover e voce attiva.
-
 # Domain Manager
 
-> v25: navigazione di uscita sempre disponibile e sidebar footer sempre visibile. — Docker-first portfolio build
+**Domain Manager** è una piattaforma SaaS per la gestione centralizzata di portfolio di domini.
 
-Domain Manager is a modular-monolith SaaS demo built with Next.js, NestJS,
-PostgreSQL, Redis/BullMQ and Docker Compose. The local stack runs entirely in
-containers.
+Il progetto nasce per aiutare aziende, sviluppatori, agenzie e team IT a tenere sotto controllo domini, scadenze, rinnovi, costi, utenti e notifiche all'interno di un'unica applicazione.
 
-## Services
+Quando il numero di domini cresce, la loro gestione può diventare rapidamente complessa. Le informazioni possono essere distribuite tra registrar differenti, fogli Excel, email, documenti e strumenti separati.
+
+Domain Manager centralizza queste informazioni e fornisce una dashboard unica dalla quale controllare lo stato dell'intero portfolio.
+
+---
+
+# Il problema
+
+Gestire pochi domini manualmente è relativamente semplice.
+
+Quando però un'organizzazione possiede decine o centinaia di domini iniziano a comparire diversi problemi:
+
+* domini distribuiti tra più registrar;
+* date di scadenza difficili da controllare;
+* rischio di dimenticare un rinnovo;
+* mancanza di una vista centralizzata;
+* costi annuali difficili da monitorare;
+* difficoltà nell'individuare il responsabile di un dominio;
+* informazioni distribuite tra email e fogli di calcolo;
+* notifiche gestite manualmente;
+* difficoltà nel ricostruire chi ha effettuato una modifica;
+* gestione poco strutturata di utenti e permessi;
+* assenza di un workflow dedicato ai rinnovi.
+
+Un dominio dimenticato o gestito male può diventare un problema operativo importante.
+
+Domain Manager nasce per rendere questo processo più organizzato e controllabile.
+
+---
+
+# La soluzione
+
+Domain Manager raccoglie le principali attività legate alla gestione dei domini all'interno di una singola applicazione.
+
+La piattaforma permette di:
+
+* aggiungere e modificare domini;
+* organizzare un portfolio di domini;
+* monitorare le date di scadenza;
+* individuare i domini che richiedono attenzione;
+* gestire i rinnovi;
+* monitorare i costi;
+* assegnare domini e attività agli utenti;
+* gestire utenti e ruoli;
+* invitare nuovi membri;
+* importare dati tramite CSV;
+* esportare dati tramite CSV;
+* inviare notifiche email;
+* consultare report;
+* visualizzare un audit log;
+* gestire impostazioni dell'organizzazione;
+* gestire configurazioni di sicurezza;
+* gestire integrazioni.
+
+L'obiettivo è trasformare la gestione dei domini da una serie di attività sparse e manuali in un workflow centralizzato.
+
+---
+
+# Come funziona
+
+Domain Manager è composto da più servizi che lavorano insieme.
 
 ```text
-Browser
-  |
-  +--> localhost:3000 --> web (Next.js)
-  |
-  +--> localhost:3001 --> api (NestJS)
-                           |
-                           +--> postgres:5432
-                           +--> redis:6379
-                           +--> postfix:25
-
-worker ------------------> redis:6379
-migrate -----------------> postgres:5432
-postfix -----------------> Internet SMTP destinations (when the host/network allows it)
+                           ┌───────────────────────┐
+                           │        Browser        │
+                           └───────────┬───────────┘
+                                       │
+                         http://localhost:3000
+                                       │
+                                       ▼
+                           ┌───────────────────────┐
+                           │    Web / Next.js      │
+                           └───────────┬───────────┘
+                                       │
+                                       │ API
+                                       ▼
+                           ┌───────────────────────┐
+                           │    API / NestJS       │
+                           │    localhost:3001     │
+                           └─────┬─────┬─────┬─────┘
+                                 │     │     │
+                   ┌─────────────┘     │     └─────────────┐
+                   ▼                   ▼                   ▼
+          ┌────────────────┐  ┌────────────────┐  ┌────────────────┐
+          │   PostgreSQL   │  │     Redis      │  │    Postfix     │
+          │      5432      │  │      6379      │  │       25       │
+          └────────────────┘  └───────┬────────┘  └───────┬────────┘
+                                      │                   │
+                                      ▼                   ▼
+                              ┌──────────────┐       Internet / SMTP
+                              │    Worker    │
+                              │   BullMQ     │
+                              └──────────────┘
 ```
 
-Only ports `3000` and `3001` are published to the host. PostgreSQL, Redis and
-Postfix are reachable only inside the Docker network.
+## Frontend — Next.js
 
-## Start
+Il frontend rappresenta l'interfaccia utilizzata dall'utente.
+
+È accessibile tramite:
+
+```text
+http://localhost:3000
+```
+
+Da qui l'utente può utilizzare:
+
+* login;
+* dashboard;
+* gestione domini;
+* rinnovi;
+* utenti;
+* assegnazioni;
+* notifiche;
+* report;
+* audit log;
+* impostazioni.
+
+---
+
+## Backend — NestJS
+
+Il backend espone le API utilizzate dall'applicazione.
+
+È disponibile sulla porta:
+
+```text
+http://localhost:3001
+```
+
+Il backend comunica con gli altri servizi dell'infrastruttura:
+
+```text
+NestJS
+   │
+   ├── PostgreSQL
+   ├── Redis
+   └── Postfix
+```
+
+---
+
+## PostgreSQL
+
+PostgreSQL rappresenta il database relazionale previsto dall'architettura.
+
+Viene eseguito all'interno della rete Docker e non viene pubblicato direttamente sulla macchina host.
+
+Porta interna:
+
+```text
+5432
+```
+
+---
+
+## Redis e BullMQ
+
+Redis viene utilizzato per supportare code e processi asincroni attraverso BullMQ.
+
+Porta interna:
+
+```text
+6379
+```
+
+Il worker può quindi elaborare attività che non devono necessariamente essere eseguite direttamente durante una richiesta HTTP.
+
+---
+
+## Worker
+
+Il worker è separato dal processo principale dell'API e comunica con Redis.
+
+```text
+API
+ │
+ ▼
+Redis / BullMQ
+ │
+ ▼
+Worker
+```
+
+Questo permette di mantenere separata la gestione delle richieste HTTP dall'elaborazione asincrona.
+
+---
+
+## Postfix
+
+Domain Manager utilizza un server Postfix interno per la gestione delle email.
+
+L'applicazione invia i messaggi al servizio:
+
+```text
+postfix:25
+```
+
+Questo significa che per l'ambiente locale non è necessario utilizzare direttamente servizi email esterni.
+
+Postfix può essere utilizzato per:
+
+* email di test;
+* notifiche;
+* inviti utenti;
+* recupero password;
+* comunicazioni transazionali.
+
+---
+
+# Funzionalità principali
+
+## Dashboard
+
+La dashboard permette di ottenere una panoramica immediata del portfolio.
+
+Può mostrare:
+
+* KPI;
+* numero di domini;
+* domini prioritari;
+* scadenze;
+* rinnovi;
+* costi;
+* attività recenti.
+
+Lo scopo è permettere all'utente di capire velocemente quali elementi richiedono attenzione.
+
+---
+
+# Gestione domini
+
+Domain Manager permette di organizzare i domini all'interno dell'applicazione.
+
+Le funzionalità comprendono:
+
+* creazione;
+* modifica;
+* eliminazione;
+* ricerca;
+* filtri;
+* importazione CSV;
+* esportazione CSV;
+* visualizzazione delle scadenze;
+* gestione rinnovi.
+
+---
+
+# Scadenze e rinnovi
+
+Uno degli obiettivi principali del progetto è rendere più semplice individuare i domini prossimi alla scadenza.
+
+Il sistema mette a disposizione viste dedicate alle scadenze e un workflow per i rinnovi.
+
+In questo modo è possibile distinguere i domini che richiedono attenzione dal resto del portfolio.
+
+---
+
+# Costi e report
+
+Domain Manager include strumenti dedicati al monitoraggio economico del portfolio.
+
+L'applicazione prevede:
+
+* costi dei domini;
+* report;
+* riepiloghi;
+* visualizzazione delle informazioni economiche.
+
+---
+
+# Utenti e ruoli
+
+Domain Manager supporta la gestione di più utenti.
+
+È possibile gestire:
+
+* utenti;
+* inviti;
+* ruoli;
+* assegnazioni.
+
+Questo permette di simulare un ambiente nel quale più persone collaborano alla gestione dello stesso portfolio.
+
+---
+
+# Inviti utenti
+
+Gli utenti possono essere invitati tramite email.
+
+Il flusso prevede:
+
+```text
+Amministratore
+      │
+      ▼
+Crea invito
+      │
+      ▼
+Generazione token
+      │
+      ▼
+Email tramite Postfix
+      │
+      ▼
+Utente riceve il link
+      │
+      ▼
+/accept-invite
+      │
+      ▼
+Impostazione nome e password
+      │
+      ▼
+Account attivato
+```
+
+Gli inviti possono avere una validità di:
+
+* 7 giorni;
+* 14 giorni;
+* 30 giorni.
+
+I token utilizzati per gli inviti vengono memorizzati sotto forma di hash.
+
+---
+
+# Recupero password
+
+Domain Manager include un flusso di recupero password.
+
+Dalla pagina di login l'utente può accedere a:
+
+```text
+/forgot-password
+```
+
+Il funzionamento è:
+
+```text
+Richiesta reset password
+        │
+        ▼
+Generazione token monouso
+        │
+        ▼
+Invio email tramite Postfix
+        │
+        ▼
+Utente apre il link
+        │
+        ▼
+Validazione token
+        │
+        ▼
+Inserimento nuova password
+        │
+        ▼
+Password aggiornata
+```
+
+Il token di reset ha una durata di:
+
+```text
+30 minuti
+```
+
+Le password demo vengono salvate utilizzando `scrypt` e non vengono memorizzate in chiaro.
+
+---
+
+# Audit Log
+
+L'applicazione include una sezione dedicata alle attività.
+
+L'obiettivo dell'audit log è permettere di avere una cronologia delle operazioni effettuate all'interno del sistema.
+
+---
+
+# Email
+
+Le email transazionali sono gestite tramite Postfix.
+
+Le tipologie comprendono:
+
+* inviti;
+* reset password;
+* notifiche;
+* test configurazione email.
+
+I template prevedono una versione HTML e un fallback testuale.
+
+---
+
+# Architettura Docker
+
+Domain Manager è stato progettato con un approccio **Docker-first**.
+
+Lo stack locale viene eseguito interamente attraverso Docker Compose.
+
+I principali container sono:
+
+```text
+web
+api
+postgres
+redis
+worker
+migrate
+postfix
+```
+
+Solo due porte vengono pubblicate verso la macchina host:
+
+| Servizio |  Porta |
+| -------- | -----: |
+| Web      | `3000` |
+| API      | `3001` |
+
+PostgreSQL, Redis e Postfix rimangono invece all'interno della rete Docker.
+
+---
+
+# Installazione su Ubuntu
+
+Questa sezione spiega come installare Domain Manager partendo da una macchina Ubuntu.
+
+## Requisiti
+
+Sono necessari:
+
+* Ubuntu;
+* connessione Internet;
+* Git;
+* Docker Engine;
+* Docker Compose Plugin.
+
+Per l'esecuzione standard del progetto non è necessario installare manualmente PostgreSQL, Redis o Postfix sulla macchina: vengono eseguiti nei rispettivi container Docker.
+
+---
+
+# 1. Aggiornare Ubuntu
+
+Aprire il terminale:
+
+```bash
+sudo apt update
+sudo apt upgrade -y
+```
+
+---
+
+# 2. Installare Git
+
+```bash
+sudo apt install -y git
+```
+
+Verificare:
+
+```bash
+git --version
+```
+
+---
+
+# 3. Installare Docker Engine
+
+Per Ubuntu è consigliato utilizzare il repository APT ufficiale di Docker.
+
+Prima installare i pacchetti necessari:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl
+```
+
+Creare la directory delle chiavi:
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+```
+
+Scaricare la chiave ufficiale Docker:
+
+```bash
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  -o /etc/apt/keyrings/docker.asc
+```
+
+Impostare i permessi:
+
+```bash
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+```
+
+Aggiungere il repository Docker:
+
+```bash
+sudo tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+```
+
+Aggiornare APT:
+
+```bash
+sudo apt update
+```
+
+Installare Docker Engine e Docker Compose:
+
+```bash
+sudo apt install -y \
+  docker-ce \
+  docker-ce-cli \
+  containerd.io \
+  docker-buildx-plugin \
+  docker-compose-plugin
+```
+
+---
+
+# 4. Verificare Docker
+
+Controllare il servizio:
+
+```bash
+sudo systemctl status docker
+```
+
+Se Docker non fosse attivo:
+
+```bash
+sudo systemctl start docker
+```
+
+Testare l'installazione:
+
+```bash
+sudo docker run hello-world
+```
+
+Docker indica `hello-world` come test standard per verificare che Engine sia installato e funzionante.
+
+---
+
+# 5. Utilizzare Docker senza sudo
+
+Questo passaggio è facoltativo ma rende più comodo lavorare con Docker.
+
+Aggiungere il proprio utente al gruppo `docker`:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+Applicare la nuova appartenenza al gruppo:
+
+```bash
+newgrp docker
+```
+
+Verificare:
+
+```bash
+docker run hello-world
+```
+
+> Il gruppo `docker` concede privilegi elevati sul sistema; questa configurazione va quindi utilizzata consapevolmente.
+
+---
+
+# 6. Clonare Domain Manager
+
+Spostarsi nella directory nella quale si vuole installare il progetto.
+
+Ad esempio:
+
+```bash
+cd ~
+```
+
+Clonare il repository:
+
+```bash
+git clone git@github.com:Luca0003/Domain-manager.git
+```
+
+Entrare nella cartella:
+
+```bash
+cd Domain-manager
+```
+
+In alternativa, tramite HTTPS:
+
+```bash
+git clone https://github.com/Luca0003/Domain-manager.git
+cd Domain-manager
+```
+
+---
+
+# 7. Configurare le variabili d'ambiente
+
+Il progetto contiene un file di esempio:
+
+```text
+.env.example
+```
+
+Creare il file `.env`:
 
 ```bash
 cp .env.example .env
+```
+
+Il file `.env` contiene la configurazione utilizzata dai servizi Docker.
+
+Prima di utilizzare il progetto in un ambiente reale è consigliato controllare e personalizzare le variabili presenti.
+
+> Non pubblicare password, token o altri segreti nel repository Git.
+
+---
+
+# 8. Avviare Domain Manager
+
+Dalla root del repository:
+
+```bash
 docker compose up --build -d
+```
+
+Il comando:
+
+* costruisce le immagini;
+* crea i container;
+* crea la rete Docker;
+* avvia i servizi;
+* lascia i container in esecuzione in background.
+
+Controllare lo stato:
+
+```bash
 docker compose ps
 ```
 
-Open:
+Dovrebbero essere visibili i servizi principali del progetto.
 
-- Login: `http://localhost:3000/login`
-- Dashboard: `http://localhost:3000/dashboard`
-- API health: `http://localhost:3001/health`
-- Swagger: `http://localhost:3001/docs`
+---
 
-Demo credentials:
+# 9. Aprire Domain Manager
+
+Una volta terminato l'avvio, aprire il browser.
+
+## Login
+
+```text
+http://localhost:3000/login
+```
+
+## Dashboard
+
+```text
+http://localhost:3000/dashboard
+```
+
+## API Health
+
+```text
+http://localhost:3001/health
+```
+
+## Swagger / API Documentation
+
+```text
+http://localhost:3001/docs
+```
+
+---
+
+# Credenziali demo
+
+Per accedere all'ambiente demo:
 
 ```text
 Email: admin@domainmanager.local
 Password: Admin123!
 ```
 
-## Email with local Postfix
+Queste credenziali sono pensate esclusivamente per l'ambiente demo.
 
-This version no longer requires Resend or an external email API account.
-Domain Manager submits mail to the internal Docker service `postfix:25`.
+Non devono essere utilizzate in produzione.
 
-In the UI open:
+---
 
-```text
-Impostazioni -> Email
-```
-
-Then:
-
-1. Verify that **POSTFIX ATTIVO** is shown.
-2. Set **Nome mittente**.
-3. Set **Email mittente**.
-4. Choose **Salva mittente**.
-5. Enter a recipient and choose **Invia email test**.
-
-When the UI says that the message was accepted by Postfix, it means the
-application-to-mail-server part is working. Final Internet delivery is a
-separate step and depends on the machine where Postfix runs.
-
-For reliable delivery to Gmail/Outlook, see:
-
-```text
-docs/postfix-production.md
-```
-
-## Useful email diagnostics
-
-Postfix container status:
+# Controllare lo stato dell'applicazione
 
 ```bash
-docker compose ps postfix
+docker compose ps
 ```
 
-Follow Postfix logs:
+Per visualizzare tutti i log:
+
+```bash
+docker compose logs
+```
+
+Per seguirli in tempo reale:
+
+```bash
+docker compose logs -f
+```
+
+---
+
+# Log del frontend
+
+```bash
+docker compose logs -f web
+```
+
+---
+
+# Log dell'API
+
+```bash
+docker compose logs -f api
+```
+
+---
+
+# Log di PostgreSQL
+
+```bash
+docker compose logs -f postgres
+```
+
+---
+
+# Log Redis
+
+```bash
+docker compose logs -f redis
+```
+
+---
+
+# Log Postfix
 
 ```bash
 docker compose logs -f postfix
 ```
 
-Show the Postfix queue:
+---
+
+# Configurazione email
+
+Dopo aver effettuato il login, aprire:
+
+```text
+Impostazioni → Email
+```
+
+Verificare che venga mostrato:
+
+```text
+POSTFIX ATTIVO
+```
+
+Configurare:
+
+1. Nome mittente
+2. Email mittente
+3. Salvare la configurazione
+4. Inserire un destinatario
+5. Premere **Invia email test**
+
+---
+
+# Come funziona l'invio email
+
+Il percorso di un messaggio è:
+
+```text
+Domain Manager
+      │
+      ▼
+NestJS API
+      │
+      ▼
+Postfix :25
+      │
+      ▼
+Destinazione SMTP
+```
+
+Quando Domain Manager comunica che il messaggio è stato accettato da Postfix significa che la comunicazione:
+
+```text
+Applicazione → Postfix
+```
+
+è avvenuta correttamente.
+
+La consegna finale verso Internet rappresenta uno step separato e dipende dalla configurazione dell'ambiente nel quale Postfix viene eseguito.
+
+Per la configurazione dedicata alla produzione consultare:
+
+```text
+docs/postfix-production.md
+```
+
+---
+
+# Diagnostica Postfix
+
+## Controllare il container
+
+```bash
+docker compose ps postfix
+```
+
+## Visualizzare i log
+
+```bash
+docker compose logs -f postfix
+```
+
+## Controllare la coda email
 
 ```bash
 docker compose exec postfix postqueue -p
 ```
 
-Retry queued mail:
+## Ritentare l'invio dei messaggi in coda
 
 ```bash
 docker compose exec postfix postqueue -f
 ```
 
-Show effective Postfix configuration:
+## Visualizzare la configurazione attiva
 
 ```bash
 docker compose exec postfix postconf -n
 ```
 
-## Rebuild after this version
+---
 
-Because the project adds a new Postfix image and a Nodemailer dependency in the
-API, rebuild `postfix`, `api` and `web`:
+# Fermare Domain Manager
+
+Per fermare i container:
+
+```bash
+docker compose stop
+```
+
+Per fermare e rimuovere container e rete:
+
+```bash
+docker compose down
+```
+
+I volumi persistenti non vengono eliminati dal normale:
+
+```bash
+docker compose down
+```
+
+---
+
+# Attenzione ai dati persistenti
+
+Non utilizzare:
+
+```bash
+docker compose down -v
+```
+
+a meno che non si vogliano eliminare intenzionalmente i volumi Docker e i dati persistenti associati al progetto.
+
+---
+
+# Riavviare Domain Manager
+
+```bash
+docker compose restart
+```
+
+---
+
+# Rebuild completo
+
+Dopo modifiche significative ai servizi:
+
+```bash
+docker compose down
+docker compose build --progress=plain
+docker compose up -d
+docker compose ps
+```
+
+Per ricostruire soltanto Postfix, API e Web:
 
 ```bash
 docker compose down
@@ -126,142 +921,418 @@ docker compose up -d
 docker compose ps
 ```
 
-Do not use `docker compose down -v` unless you intentionally want to delete
-persistent application data.
+---
 
-## UI demo scope
+# Aggiornare il progetto
 
-The current portfolio UI includes:
+Per scaricare gli ultimi aggiornamenti dal repository:
 
-- dashboard and portfolio KPIs;
-- domain CRUD demo, filters, CSV import/export;
-- expiry views;
-- renewal workflow;
-- notifications and Postfix email tests;
-- assignments;
-- users, invitations and roles;
-- reports and costs;
-- audit log;
-- organization/security/integration settings.
+```bash
+cd ~/Domain-manager
+git pull
+```
 
-Most domain/business data is still demo data persisted in browser localStorage.
-The next production milestone is to move authentication, users, organizations,
-domains and workflows to NestJS/Prisma/PostgreSQL.
+Poi ricostruire i servizi:
 
-## Password dimenticata (v18)
+```bash
+docker compose down
+docker compose up --build -d
+```
 
-Il recupero password non è più simulato: usa un token monouso di 30 minuti e invia il link tramite Postfix. La nuova password viene salvata con scrypt nel volume persistente dell'applicazione. Vedi `docs/password-reset.md`.
+Controllare:
 
-## v19 — Web type-check fix
+```bash
+docker compose ps
+```
 
-Corretto il ritorno opzionale dell'email di recupero con `exactOptionalPropertyTypes` attivo. I file `*.tsbuildinfo` non vengono più inclusi nel contesto Docker, evitando cache TypeScript incrementali obsolete durante le build.
+---
 
-## UI refinements v20
+# Sviluppo locale
 
-- Email HTML brandizzate Domain Manager per inviti, reset password, test e notifiche, con fallback text/plain.
-- Invito utente migliorato: nome opzionale, ruolo con descrizione, scadenza 7/14/30 giorni, messaggio personale e anteprima.
-- Gli inviti demo mostrano la data di scadenza; il reinvio estende la validità di 14 giorni.
-- Sidebar rifinita: workspace/organizzazione separato dalla navigazione e collegamento diretto alle impostazioni organizzazione.
+Il progetto utilizza Node.js e pnpm.
 
-## v23 — Onboarding utenti e recupero account
+La pipeline CI utilizza Node.js 22.
 
-Questa versione completa due flussi prima solo parziali:
+Il `package.json` definisce:
 
-- **Inviti reali:** l'email contiene un token monouso e apre `/accept-invite`, dove l'utente completa nome e password e diventa autenticabile.
-- **Password dimenticata:** la login apre una pagina dedicata `/forgot-password`; il link ricevuto via Postfix viene validato prima di consentire il cambio password.
-- Gli inviti scadono dopo 7/14/30 giorni; i reset password dopo 30 minuti.
-- Token invito/reset memorizzati solo come hash.
-- Password demo memorizzate tramite `scrypt`, mai in chiaro.
+```text
+pnpm@10.15.0
+```
 
-Documentazione: `docs/account-onboarding.md`.
+Se si vuole lavorare direttamente sul codice fuori dai container è quindi consigliato utilizzare versioni compatibili con il progetto.
 
-## v23 - Password reset e template email
+Verificare Node:
 
-- il recupero password accetta sia l'email di login sia l'email personale di recupero configurata;
-- la pagina Password dimenticata mostra successo solo quando Postfix ha realmente preso in carico il messaggio;
-- template email riordinato con CTA nel punto corretto;
-- rimosso dall'HTML il blocco con URL grezzo sotto al pulsante.
+```bash
+node -v
+```
 
+Verificare pnpm:
 
-## v23 — Email layout refinement
+```bash
+pnpm -v
+```
 
-Template email transazionali riordinato: gerarchia più chiara, dettagli in card, CTA centrale e footer minimale.
+Installare le dipendenze:
 
-## v24 — Email color system
+```bash
+pnpm install
+```
 
-The transactional email template now uses a consistent Domain Manager color system:
+Il progetto utilizza:
 
-- navy (`#071b33`) for the product header and brand identity;
-- blue (`#2563eb`) for workspace invitations and primary account onboarding actions;
-- violet (`#7c3aed`) for password-reset and account-security actions;
-- emerald (`#059669`) for email/configuration tests;
-- amber security callouts for warnings that should be noticed without looking like an error.
+```text
+pnpm-lock.yaml
+```
 
-Detail panels, badges, CTA buttons and administrator notes inherit the contextual accent while the body remains neutral and highly readable. Raw action URLs are not rendered in the HTML email body.
+per mantenere le versioni delle dipendenze coerenti tra sviluppo e CI.
 
-## v30 — Sidebar hover rail fix
+---
 
-Corretto il cursore blu laterale della sidebar: nella v29 era presente ma veniva tagliato da `overflow-x: hidden` perché posizionato fuori dal contenitore. Ora il rail è visibile, animato e segue la voce puntata; quando il puntatore lascia la navigazione torna l'indicatore della sezione attiva.
+# Controlli prima di un commit
 
-## UI v32 — ordine pagine interne
+Prima di inviare modifiche al repository è possibile eseguire:
 
-Le pagine interne sono state rese più robuste: tabelle con larghezze minime e scroll controllato, toolbar responsive, wrapping dei testi lunghi dentro card e modali, impostazioni e report senza overflow.
+```bash
+pnpm lint
+```
 
+```bash
+pnpm typecheck
+```
 
-## v32 layout pass
-Le pagine interne usano ora un reflow strutturale visibile: toolbar/card dedicate, KPI più ampi, tabelle con colonne minime esplicite, settings e modali con spaziature maggiori, e contenimento dei testi lunghi.
+```bash
+pnpm test
+```
 
-## v33 · Dashboard overview reflow
+```bash
+pnpm build
+```
 
-The main Dashboard now uses a dedicated layout independent from internal-page reflow rules. KPI cards, charts, priority-domain table and recent activity keep stable minimum sizes; on short desktop screens only the central dashboard content scrolls instead of squeezing cards until text becomes unreadable.
+Questi controlli corrispondono alle principali verifiche effettuate dalla pipeline CI.
 
-## v35 - Login alignment
-- Pannello login riequilibrato 43/57 su desktop.
-- Brand sinistro centrato realmente nel proprio pannello.
-- Card e copyright raccolti in un unico stack centrato.
-- Correzioni specifiche per monitor bassi e mobile.
+---
 
-## v36 - Login viewport fix
-- Login no longer clips the lower card on short screens.
-- Desktop login is centered when space permits and scrolls naturally when content exceeds the viewport.
-- Compact rules reduce vertical density on laptop-height displays without changing functionality.
+# GitHub Actions
 
-## UI v37 — Futuristic login
-La pagina `/login` è stata ridisegnata come layout SaaS futuristico a tre zone (rail, hero portfolio, form), mantenendo invariati autenticazione, recupero password e sessione demo.
+Il repository utilizza GitHub Actions per verificare automaticamente il codice.
 
-### UI v38 — login single viewport
-La login futuristica è stata ricalibrata per desktop come composizione a viewport singola (`100dvh`) senza scroll verticale. Rail, hero e card mantengono proporzioni coerenti con il concept scelto; su schermi bassi il contenuto viene scalato in modo uniforme anziché compresso o tagliato.
+Ad ogni push sul branch:
 
+```text
+main
+```
 
-## v39 — Login fidelity pass
-Login riallineata al riferimento futuristico scelto: titolo su tre righe, rail e footer, curva luminosa, mini dashboard con stati, badge TLD, decorazione tecnica della card e proporzioni single-viewport.
+la pipeline esegue:
 
-## UI v40 — Login pixel-oriented reference
-La Login desktop usa l'artwork approvato come composizione visiva di riferimento e mantiene sovrapposti controlli reali e accessibili per email, password, ricordami, recupero password, accesso e Google/SSO. Il layout desktop è a viewport singola senza scroll; su mobile viene usato un form responsive nativo.
+```text
+Installazione dipendenze
+        │
+        ▼
+Lint
+        │
+        ▼
+Typecheck
+        │
+        ▼
+Test
+        │
+        ▼
+Build
+```
 
-## Login v43 — implementazione reale
+In questo modo eventuali problemi vengono individuati prima che le modifiche vengano considerate valide.
 
-La schermata di accesso futuristica è ora costruita interamente con React/HTML/CSS/SVG. Non utilizza immagini di riferimento o mockup come sfondo. Il form resta collegato a `POST /api/auth/login` e conserva i flussi di recupero password e SSO demo già presenti.
+---
 
+# Struttura logica del progetto
 
-## v45 Login fidelity
+A livello concettuale il repository è organizzato attorno ai seguenti componenti:
 
-La login desktop è costruita interamente in React/HTML/CSS/SVG su una canvas 1648x928 scalata uniformemente alla viewport. Non usa immagini di copertina.
+```text
+Domain Manager
+│
+├── Web
+│   └── Next.js
+│
+├── API
+│   └── NestJS
+│
+├── Database
+│   └── PostgreSQL
+│
+├── Queue
+│   ├── Redis
+│   └── BullMQ
+│
+├── Worker
+│
+├── Email
+│   └── Postfix
+│
+├── Docker
+│   └── Docker Compose
+│
+└── Documentation
+```
 
+---
 
-## Login v45 — full bleed
+# Flusso completo di una richiesta
 
-La schermata Login mantiene la canvas 1648×928 proporzionata, ma il fondale ora continua fino ai bordi della viewport. In questo modo non compaiono bande bianche quando il rapporto dello schermo non coincide esattamente con quello del riferimento.
+Quando un utente interagisce con Domain Manager:
 
+```text
+1. L'utente apre il browser
+             │
+             ▼
+2. Next.js mostra l'interfaccia
+             │
+             ▼
+3. Il frontend invia una richiesta all'API
+             │
+             ▼
+4. NestJS elabora la richiesta
+             │
+             ├──> PostgreSQL
+             │
+             ├──> Redis / BullMQ
+             │
+             └──> Postfix
+             │
+             ▼
+5. L'API restituisce la risposta
+             │
+             ▼
+6. Next.js aggiorna l'interfaccia
+```
 
-## Login v50 — true fullscreen
+---
 
-La composizione desktop della Login riempie ora esattamente la viewport (`100vw × 100dvh`) tramite scaling indipendente sugli assi X/Y della canvas codificata 1648×928. In questo modo non restano bande o bordi esterni, non viene ritagliato il footer e tutti i controlli restano reali e interattivi. Il layout mobile sotto 901 px continua a usare il flusso responsive dedicato.
+# Stato attuale del progetto
 
-## Login v52 — rifinitura spaziature
+Domain Manager è attualmente un progetto **portfolio / SaaS demo**.
 
-La Login desktop mantiene il dimensionamento bilanciato della v50, ma corregge le sovrapposizioni osservate su viewport 16:9: area footer della rail riservata, testo hero con righe più corte, pannello "Panoramica" con grafico confinato nella propria colonna e riga TLD separata dal logo centrale. Nessuna immagine di copertina viene usata per costruire la Login.
+L'interfaccia comprende già:
 
+* dashboard;
+* KPI;
+* domini;
+* filtri;
+* import/export CSV;
+* scadenze;
+* rinnovi;
+* notifiche;
+* email;
+* assegnazioni;
+* utenti;
+* inviti;
+* ruoli;
+* report;
+* costi;
+* audit log;
+* impostazioni organizzazione;
+* sicurezza;
+* integrazioni.
 
-### Login v52
-Micro-rifinitura della login fullscreen: il blocco sicurezza sotto la card e il copyright sono centrati sullo stesso asse della card, senza modificare dimensioni o proporzioni della v51.
+Parte dei dati relativi ai domini e alle funzionalità business viene ancora mantenuta nel browser tramite:
+
+```text
+localStorage
+```
+
+Il successivo step architetturale consiste nel portare progressivamente:
+
+```text
+autenticazione
+utenti
+organizzazioni
+domini
+workflow
+```
+
+sul backend basato su:
+
+```text
+NestJS
+Prisma
+PostgreSQL
+```
+
+---
+
+# Sicurezza
+
+Il progetto include diverse misure orientate alla sicurezza:
+
+* password demo elaborate tramite `scrypt`;
+* token reset password monouso;
+* token invito monouso;
+* token memorizzati sotto forma di hash;
+* scadenza dei token;
+* PostgreSQL non esposto direttamente sull'host;
+* Redis non esposto direttamente sull'host;
+* Postfix isolato nella rete Docker;
+* separazione tra frontend e API.
+
+---
+
+# Troubleshooting
+
+## `docker: command not found`
+
+Docker non è installato oppure non è disponibile nel `PATH`.
+
+Verificare:
+
+```bash
+docker --version
+```
+
+---
+
+## `docker compose: command not found`
+
+Verificare che il Docker Compose Plugin sia installato:
+
+```bash
+docker compose version
+```
+
+Se necessario:
+
+```bash
+sudo apt install docker-compose-plugin
+```
+
+---
+
+## Permission denied su Docker
+
+Se compare un errore simile a:
+
+```text
+permission denied while trying to connect to the Docker daemon
+```
+
+eseguire:
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+e riprovare:
+
+```bash
+docker compose ps
+```
+
+---
+
+## Porta 3000 già occupata
+
+Controllare quale processo sta utilizzando la porta:
+
+```bash
+sudo ss -ltnp | grep :3000
+```
+
+---
+
+## Porta 3001 già occupata
+
+```bash
+sudo ss -ltnp | grep :3001
+```
+
+---
+
+## Un container non parte
+
+Controllare:
+
+```bash
+docker compose ps
+```
+
+Poi leggere i log:
+
+```bash
+docker compose logs NOME_SERVIZIO
+```
+
+Ad esempio:
+
+```bash
+docker compose logs api
+```
+
+---
+
+## Ricostruire tutto da zero senza cancellare i volumi
+
+```bash
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+---
+
+# Documentazione aggiuntiva
+
+Per informazioni specifiche:
+
+```text
+docs/password-reset.md
+docs/account-onboarding.md
+docs/postfix-production.md
+```
+
+---
+
+# Stack tecnologico
+
+| Area                  | Tecnologia     |
+| --------------------- | -------------- |
+| Frontend              | Next.js        |
+| Backend               | NestJS         |
+| Database              | PostgreSQL     |
+| Queue                 | Redis          |
+| Job processing        | BullMQ         |
+| Email                 | Postfix        |
+| Container             | Docker         |
+| Orchestrazione locale | Docker Compose |
+| Package Manager       | pnpm           |
+| CI                    | GitHub Actions |
+
+---
+
+# Obiettivo del progetto
+
+Domain Manager è stato sviluppato come progetto portfolio con l'obiettivo di rappresentare un'applicazione SaaS moderna completa.
+
+Il progetto non vuole mostrare soltanto un'interfaccia grafica, ma l'intero ciclo di funzionamento di un'applicazione:
+
+```text
+Frontend
+   +
+Backend
+   +
+Database
+   +
+Code asincrone
+   +
+Email
+   +
+Autenticazione
+   +
+Container
+   +
+CI
+```
+
+L'obiettivo finale è offrire una piattaforma dalla quale un'organizzazione possa controllare in modo centralizzato il proprio portfolio di domini, riducendo attività manuali, aumentando la visibilità sulle scadenze e rendendo più strutturata la collaborazione tra gli utenti.
+
+---
