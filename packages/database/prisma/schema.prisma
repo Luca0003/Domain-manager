@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ORGANIZATION_ADMIN
+  DOMAIN_MANAGER
+  VIEWER
+}
+
+model User {
+  id            String       @id @default(uuid()) @db.Uuid
+  email         String       @unique @db.VarChar(320)
+  emailVerified Boolean      @default(false)
+  memberships   Membership[]
+  auditEvents   AuditEvent[] @relation("AuditActor")
+  createdAt     DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(6)
+}
+
+model Organization {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String       @db.VarChar(200)
+  timezone    String       @default("Europe/Rome") @db.VarChar(100)
+  memberships Membership[]
+  domains     Domain[]
+  auditEvents AuditEvent[]
+  createdAt   DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(6)
+}
+
+model Membership {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  userId         String       @db.Uuid
+  role           Role
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model Domain {
+  id                   String       @id @default(uuid()) @db.Uuid
+  organizationId       String       @db.Uuid
+  normalizedDomainName String       @db.VarChar(253)
+  unicodeDomainName    String?      @db.VarChar(253)
+  punycodeDomainName   String?      @db.VarChar(253)
+  tld                  String?      @db.VarChar(63)
+  registrar            String?      @db.VarChar(200)
+  expiresOn            DateTime?    @db.Date
+  autoRenewEnabled     Boolean      @default(false)
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt            DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime     @updatedAt @db.Timestamptz(6)
+
+  @@unique([organizationId, normalizedDomainName])
+  @@index([organizationId, expiresOn])
+}
+
+model AuditEvent {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  actorId        String?      @db.Uuid
+  action         String       @db.VarChar(120)
+  entityType     String       @db.VarChar(120)
+  entityId       String?      @db.Uuid
+  correlationId  String?      @db.VarChar(100)
+  before         Json?
+  after          Json?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+
+  @@index([organizationId, createdAt])
+  @@index([actorId, createdAt])
+}
