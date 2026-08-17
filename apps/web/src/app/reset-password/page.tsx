@@ -24,12 +24,16 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get("token") ?? "";
     tokenRef.current = value;
-    if (!value) { setValidation({ valid: false, message: "Link di recupero non valido." }); setLoading(false); return; }
-    void fetch(`/api/auth/password-reset/validate?token=${encodeURIComponent(value)}`, { cache: "no-store" })
-      .then(async (response) => await response.json() as ResetValidation)
+
+    const validationRequest: Promise<ResetValidation> = value
+      ? fetch(`/api/auth/password-reset/validate?token=${encodeURIComponent(value)}`, { cache: "no-store" })
+          .then(async (response) => await response.json() as ResetValidation)
+      : Promise.resolve({ valid: false, message: "Link di recupero non valido." });
+
+    void validationRequest
       .then(setValidation)
       .catch(() => setValidation({ valid: false, message: "Servizio reset password non raggiungibile." }))
-      .finally(()=>setLoading(false));
+      .finally(() => setLoading(false));
   }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

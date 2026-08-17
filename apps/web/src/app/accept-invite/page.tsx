@@ -41,13 +41,13 @@ export default function AcceptInvitePage() {
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get("token") ?? "";
     tokenRef.current = value;
-    if (!value) {
-      setDetails({ valid: false, message: "Il link di invito non contiene un token valido." });
-      setLoading(false);
-      return;
-    }
-    void fetch(`/api/auth/invitations/validate?token=${encodeURIComponent(value)}`, { cache: "no-store" })
-      .then(async (response) => await response.json() as InvitationDetails)
+
+    const validationRequest: Promise<InvitationDetails> = value
+      ? fetch(`/api/auth/invitations/validate?token=${encodeURIComponent(value)}`, { cache: "no-store" })
+          .then(async (response) => await response.json() as InvitationDetails)
+      : Promise.resolve({ valid: false, message: "Il link di invito non contiene un token valido." });
+
+    void validationRequest
       .then((payload) => {
         setDetails(payload);
         if (payload.valid) setName(payload.name ?? "");
