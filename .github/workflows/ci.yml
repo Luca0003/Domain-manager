@@ -20,6 +20,11 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://domain_manager:domain_manager_local@localhost:5432/domain_manager
+
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
