@@ -119,12 +119,17 @@ export default function LoginPage() {
     };
     updateScale();
     window.addEventListener("resize", updateScale);
-    const remembered = window.localStorage.getItem("domain-manager.remembered-email");
-    if (remembered) {
-      setEmail(remembered);
-      setRemember(true);
-    }
-    return () => window.removeEventListener("resize", updateScale);
+    const rememberedTimer = window.setTimeout(() => {
+      const remembered = window.localStorage.getItem("domain-manager.remembered-email");
+      if (remembered) {
+        setEmail(remembered);
+        setRemember(true);
+      }
+    }, 0);
+    return () => {
+      window.clearTimeout(rememberedTimer);
+      window.removeEventListener("resize", updateScale);
+    };
   }, [router]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

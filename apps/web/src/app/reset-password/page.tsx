@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeftIcon, CheckIcon, ClockIcon, EyeIcon, GlobeIcon, LockIcon, MailIcon } from "@/components/icons";
 
@@ -8,7 +8,7 @@ type ResetValidation = { valid: boolean; email?: string; name?: string; expiresA
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const [token, setToken] = useState("");
+  const tokenRef = useRef("");
   const [validation, setValidation] = useState<ResetValidation | null>(null);
   const [loading, setLoading] = useState(true);
   const [password, setPassword] = useState("");
@@ -23,7 +23,7 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get("token") ?? "";
-    setToken(value);
+    tokenRef.current = value;
     if (!value) { setValidation({ valid: false, message: "Link di recupero non valido." }); setLoading(false); return; }
     void fetch(`/api/auth/password-reset/validate?token=${encodeURIComponent(value)}`, { cache: "no-store" })
       .then(async (response) => await response.json() as ResetValidation)
@@ -39,7 +39,7 @@ export default function ResetPasswordPage() {
     if (password !== confirmPassword) { setMessage("Le due password non coincidono."); return; }
     setBusy(true);
     try {
-      const response = await fetch("/api/auth/password-reset/complete", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({token,password}) });
+      const response = await fetch("/api/auth/password-reset/complete", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({token:tokenRef.current,password}) });
       const payload = await response.json() as { reset?: boolean; message?: string };
       setMessage(payload.message || "Impossibile completare il reset.");
       setSuccess(Boolean(payload.reset));

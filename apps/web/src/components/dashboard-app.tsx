@@ -2,6 +2,7 @@
 
 import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertIcon,
   BarChartIcon,
@@ -16,7 +17,6 @@ import {
   DollarIcon,
   DownloadIcon,
   EditIcon,
-  EyeIcon,
   FileIcon,
   FilterIcon,
   GlobeIcon,
@@ -31,7 +31,6 @@ import {
   SearchIcon,
   SettingsIcon,
   ShieldIcon,
-  TagIcon,
   TrashIcon,
   UploadIcon,
   UserIcon,
@@ -202,15 +201,6 @@ const sectionCopy: Record<Exclude<SectionKey, "dashboard">, { title: string; tex
   "audit-log": { title: "Audit Log", text: "Storico delle operazioni, attori e correlation ID." },
   settings: { title: "Impostazioni", text: "Organizzazione, utenti, sicurezza, Postfix locale e integrazioni." },
 };
-
-async function getEmailProviderStatus(): Promise<EmailProviderStatus> {
-  try {
-    const response = await fetch("/api/email/status", { cache: "no-store" });
-    return (await response.json()) as EmailProviderStatus;
-  } catch {
-    return { provider: "postfix", configured: false, reachable: false, from: "", transport: "smtp-local", source: "none", host: "postfix", port: 25, message: "Servizio email non raggiungibile." };
-  }
-}
 
 async function getEmailProviderConfiguration(): Promise<EmailProviderConfiguration> {
   try {
@@ -442,6 +432,7 @@ function EmptyState({ icon, title, text }: { icon: ReactNode; title: string; tex
 }
 
 export function DashboardApp({ initialSection = "dashboard" }: { initialSection?: SectionKey }) {
+  const router = useRouter();
   const [currentSection, setCurrentSection] = useState<SectionKey>(initialSection);
   const [collapsed, setCollapsed] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -474,35 +465,39 @@ export function DashboardApp({ initialSection = "dashboard" }: { initialSection?
   }, []);
 
   useEffect(() => {
-    try {
-      const storedSession = window.localStorage.getItem("domain-manager.demo.session");
-      if (storedSession) {
-        const parsed = JSON.parse(storedSession) as Partial<DemoSession>;
-        if (parsed.email && parsed.role && parsed.organization) {
-          setSession({
-            email: parsed.email,
-            name: parsed.name || parsed.email.split("@")[0] || "Utente",
-            role: parsed.role,
-            organization: parsed.organization,
-            ...(parsed.createdAt ? { createdAt: parsed.createdAt } : {}),
-          });
+    const hydrationTimer = window.setTimeout(() => {
+      try {
+        const storedSession = window.localStorage.getItem("domain-manager.demo.session");
+        if (storedSession) {
+          const parsed = JSON.parse(storedSession) as Partial<DemoSession>;
+          if (parsed.email && parsed.role && parsed.organization) {
+            setSession({
+              email: parsed.email,
+              name: parsed.name || parsed.email.split("@")[0] || "Utente",
+              role: parsed.role,
+              organization: parsed.organization,
+              ...(parsed.createdAt ? { createdAt: parsed.createdAt } : {}),
+            });
+          }
         }
+        const storedDomains = window.localStorage.getItem("domain-manager.demo.domains");
+        const storedRenewals = window.localStorage.getItem("domain-manager.demo.renewals");
+        const storedNotifications = window.localStorage.getItem("domain-manager.demo.notifications");
+        const storedAudit = window.localStorage.getItem("domain-manager.demo.audit");
+        const storedMembers = window.localStorage.getItem("domain-manager.demo.members");
+        if (storedDomains) setDomains(JSON.parse(storedDomains) as DomainRecord[]);
+        if (storedRenewals) setRenewals(JSON.parse(storedRenewals) as RenewalRecord[]);
+        if (storedNotifications) setNotifications(JSON.parse(storedNotifications) as NotificationRecord[]);
+        if (storedAudit) setAudit(JSON.parse(storedAudit) as AuditRecord[]);
+        if (storedMembers) setMembers(JSON.parse(storedMembers) as MemberRecord[]);
+      } catch {
+        // Se i dati demo locali sono corrotti, ripartiamo dai seed senza bloccare l'interfaccia.
+      } finally {
+        setMockHydrated(true);
       }
-      const storedDomains = window.localStorage.getItem("domain-manager.demo.domains");
-      const storedRenewals = window.localStorage.getItem("domain-manager.demo.renewals");
-      const storedNotifications = window.localStorage.getItem("domain-manager.demo.notifications");
-      const storedAudit = window.localStorage.getItem("domain-manager.demo.audit");
-      const storedMembers = window.localStorage.getItem("domain-manager.demo.members");
-      if (storedDomains) setDomains(JSON.parse(storedDomains) as DomainRecord[]);
-      if (storedRenewals) setRenewals(JSON.parse(storedRenewals) as RenewalRecord[]);
-      if (storedNotifications) setNotifications(JSON.parse(storedNotifications) as NotificationRecord[]);
-      if (storedAudit) setAudit(JSON.parse(storedAudit) as AuditRecord[]);
-      if (storedMembers) setMembers(JSON.parse(storedMembers) as MemberRecord[]);
-    } catch {
-      // Se i dati demo locali sono corrotti, ripartiamo dai seed senza bloccare l'interfaccia.
-    } finally {
-      setMockHydrated(true);
-    }
+    }, 0);
+
+    return () => window.clearTimeout(hydrationTimer);
   }, []);
 
   useEffect(() => {
@@ -638,7 +633,7 @@ export function DashboardApp({ initialSection = "dashboard" }: { initialSection?
   function exitToLogin() {
     window.localStorage.removeItem("domain-manager.demo.session");
     setOpenMenu(null);
-    window.location.assign("/login");
+    router.replace("/login");
   }
 
   return (
@@ -717,7 +712,7 @@ export function DashboardApp({ initialSection = "dashboard" }: { initialSection?
             </div>
             <div className="popover-anchor">
               <button className="header-icon" aria-label="Aiuto" type="button" onClick={() => toggleMenu("help")}><HelpIcon size={23} /></button>
-              {openMenu === "help" ? <Popover><strong>Centro assistenza</strong><p>Questa demo include i flussi UI dell'MVP. Le email passano dal server Postfix interno; RDAP e registrar restano simulati per ora.</p><button onClick={() => notify("Guida demo aperta", "info")}>Apri guida</button></Popover> : null}
+              {openMenu === "help" ? <Popover><strong>Centro assistenza</strong><p>Questa demo include i flussi UI dell’MVP. Le email passano dal server Postfix interno; RDAP e registrar restano simulati per ora.</p><button onClick={() => notify("Guida demo aperta", "info")}>Apri guida</button></Popover> : null}
             </div>
             <div className="popover-anchor">
               <button className="language-button" type="button" onClick={() => toggleMenu("language")}>IT <ChevronDownIcon size={17} /></button>
@@ -956,7 +951,7 @@ function NotificationsSection({ notifications, setNotifications, notify, addAudi
   }
 
   return <section className="internal-section notifications-layout">
-    <article className="panel rules-panel"><header className="subsection-header"><div><h2>Regole organizzazione</h2><p>Soglie e canali demo</p></div><span className="demo-badge">DEMO</span></header><div className="smtp-info-callout configured"><MailIcon size={20}/><div><strong>Postfix locale</strong><span>Domain Manager consegna le email al container Postfix interno; se il mittente non è configurato mantiene automaticamente l'anteprima interna.</span></div></div><div className="settings-list">
+    <article className="panel rules-panel"><header className="subsection-header"><div><h2>Regole organizzazione</h2><p>Soglie e canali demo</p></div><span className="demo-badge">DEMO</span></header><div className="smtp-info-callout configured"><MailIcon size={20}/><div><strong>Postfix locale</strong><span>Domain Manager consegna le email al container Postfix interno; se il mittente non è configurato mantiene automaticamente l’anteprima interna.</span></div></div><div className="settings-list">
       <label className="setting-row"><span><strong>Notifiche in-app</strong><small>Centro notifiche interno</small></span><input type="checkbox" checked={rules.inApp} onChange={(e) => setRules({...rules, inApp:e.target.checked})}/></label>
       <label className="setting-row"><span><strong>Email transazionale</strong><small>Invio tramite Postfix locale quando configurato, anteprima interna come fallback</small></span><input type="checkbox" checked={rules.emailPreview} onChange={(e) => setRules({...rules, emailPreview:e.target.checked})}/></label>
       <label className="setting-row"><span><strong>Webhook</strong><small>Integrazione esterna simulata</small></span><input type="checkbox" checked={rules.webhook} onChange={(e) => setRules({...rules, webhook:e.target.checked})}/></label>
@@ -1116,19 +1111,23 @@ function SettingsSection({ setModal, notify, addAudit, members, navigate, setNot
   const [recoveryEmailSaving, setRecoveryEmailSaving] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem("domain-manager.demo.settings");
-      if (stored) {
-        const value = JSON.parse(stored) as { organization?: typeof organization; security?: typeof security; integration?: typeof integration };
-        if (value.organization) setOrganization(value.organization);
-        if (value.security) setSecurity(value.security);
-        if (value.integration) setIntegration(value.integration);
+    const hydrationTimer = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem("domain-manager.demo.settings");
+        if (stored) {
+          const value = JSON.parse(stored) as { organization?: typeof organization; security?: typeof security; integration?: typeof integration };
+          if (value.organization) setOrganization(value.organization);
+          if (value.security) setSecurity(value.security);
+          if (value.integration) setIntegration(value.integration);
+        }
+      } catch {
+        // Le impostazioni demo corrotte non devono bloccare la pagina.
+      } finally {
+        setSettingsHydrated(true);
       }
-    } catch {
-      // Le impostazioni demo corrotte non devono bloccare la pagina.
-    } finally {
-      setSettingsHydrated(true);
-    }
+    }, 0);
+
+    return () => window.clearTimeout(hydrationTimer);
   }, []);
 
   useEffect(() => {
@@ -1144,13 +1143,19 @@ function SettingsSection({ setModal, notify, addAudit, members, navigate, setNot
   useEffect(() => {
     if (tab !== "email") return;
     let active = true;
-    setEmailStatusLoading(true);
-    void getEmailProviderConfiguration().then((configuration) => {
+    const loadingTimer = window.setTimeout(() => {
       if (!active) return;
-      applyEmailConfiguration(configuration);
-      setEmailStatusLoading(false);
-    });
-    return () => { active = false; };
+      setEmailStatusLoading(true);
+      void getEmailProviderConfiguration().then((configuration) => {
+        if (!active) return;
+        applyEmailConfiguration(configuration);
+        setEmailStatusLoading(false);
+      });
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(loadingTimer);
+    };
   }, [tab]);
 
   useEffect(() => {
@@ -1268,7 +1273,7 @@ function SettingsSection({ setModal, notify, addAudit, members, navigate, setNot
 
   return <section className="internal-section settings-section"><div className="settings-tabs">{settingsTabs.map(([key,label])=><button key={key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}</button>)}</div>
     {tab === "organization" ? <article className="panel settings-card"><header className="subsection-header"><div><h2>Profilo organizzazione</h2><p>Preferenze usate per visualizzazione e pianificazione.</p></div></header><div className="settings-form-grid"><label>Nome organizzazione<input value={organization.name} onChange={(e)=>setOrganization({...organization,name:e.target.value})}/></label><label>Fuso orario<select value={organization.timezone} onChange={(e)=>setOrganization({...organization,timezone:e.target.value})}><option>Europe/Rome</option><option>Europe/London</option><option>America/New_York</option></select></label><label>Lingua predefinita<select value={organization.language} onChange={(e)=>setOrganization({...organization,language:e.target.value})}><option>Italiano</option><option>English</option></select></label><label>Conservazione audit (giorni)<input type="number" value={organization.retention} onChange={(e)=>setOrganization({...organization,retention:e.target.value})}/></label></div><div className="settings-footer"><button className="primary-action" onClick={()=>save("Organizzazione")}>Salva modifiche</button></div></article> : null}
-    {tab === "users" ? <article className="panel settings-card"><header className="subsection-header"><div><h2>Utenti e ruoli</h2><p>Gestisci accessi e inviti dell'organizzazione.</p></div><div className="header-inline-actions"><button className="secondary-action compact" onClick={()=>navigate("/dashboard/users")}><UsersIcon size={17}/> Gestisci utenti</button><button className="primary-action compact" onClick={()=>setModal({kind:"invite"})}><PlusIcon size={17}/> Invita</button></div></header><div className="data-table-scroll"><table className="app-table compact-table"><thead><tr><th>Utente</th><th>Email</th><th>Ruolo</th><th>Stato</th></tr></thead><tbody>{members.slice(0,6).map((user)=><tr key={user.email}><td><strong>{user.name}</strong></td><td>{user.email}</td><td>{user.role}</td><td><span className={cn("data-pill", user.status === "Attivo" ? "success" : user.status === "Invitato" ? "warning" : "neutral")}>{user.status}</span></td></tr>)}</tbody></table></div></article> : null}
+    {tab === "users" ? <article className="panel settings-card"><header className="subsection-header"><div><h2>Utenti e ruoli</h2><p>Gestisci accessi e inviti dell’organizzazione.</p></div><div className="header-inline-actions"><button className="secondary-action compact" onClick={()=>navigate("/dashboard/users")}><UsersIcon size={17}/> Gestisci utenti</button><button className="primary-action compact" onClick={()=>setModal({kind:"invite"})}><PlusIcon size={17}/> Invita</button></div></header><div className="data-table-scroll"><table className="app-table compact-table"><thead><tr><th>Utente</th><th>Email</th><th>Ruolo</th><th>Stato</th></tr></thead><tbody>{members.slice(0,6).map((user)=><tr key={user.email}><td><strong>{user.name}</strong></td><td>{user.email}</td><td>{user.role}</td><td><span className={cn("data-pill", user.status === "Attivo" ? "success" : user.status === "Invitato" ? "warning" : "neutral")}>{user.status}</span></td></tr>)}</tbody></table></div></article> : null}
     {tab === "security" ? <article className="panel settings-card"><header className="subsection-header"><div><h2>Sicurezza</h2><p>Controlli preparati per la futura autenticazione reale.</p></div></header><div className="settings-list wide"><label className="setting-row"><span><strong>MFA obbligatoria</strong><small>Richiede secondo fattore per gli amministratori</small></span><input type="checkbox" checked={security.mfa} onChange={(e)=>setSecurity({...security,mfa:e.target.checked})}/></label><label className="setting-row"><span><strong>Rilevamento accessi sospetti</strong><small>Registra e segnala pattern anomali</small></span><input type="checkbox" checked={security.suspiciousLogin} onChange={(e)=>setSecurity({...security,suspiciousLogin:e.target.checked})}/></label><label className="setting-row"><span><strong>SSO OpenID Connect</strong><small>Predisposizione per provider aziendali</small></span><input type="checkbox" checked={security.sso} onChange={(e)=>setSecurity({...security,sso:e.target.checked})}/></label><label className="setting-row"><span><strong>Durata sessione</strong><small>Ore prima della nuova autenticazione</small></span><select value={security.sessionHours} onChange={(e)=>setSecurity({...security,sessionHours:e.target.value})}><option value="4">4 ore</option><option value="8">8 ore</option><option value="12">12 ore</option><option value="24">24 ore</option></select></label></div><div className="settings-footer"><button className="primary-action" onClick={()=>save("Sicurezza")}>Salva sicurezza</button></div></article> : null}
     {tab === "email" ? <article className="panel settings-card email-api-card">
       <header className="subsection-header"><div><h2>Postfix locale</h2><p>Invio email tramite il mail server interno di Domain Manager, senza account API esterni.</p></div><span className={cn("demo-badge", emailStatus?.reachable && "configured-badge")}>{emailStatusLoading ? "CONTROLLO..." : emailStatus?.reachable ? "POSTFIX ATTIVO" : "POSTFIX OFFLINE"}</span></header>
@@ -1288,14 +1293,14 @@ function SettingsSection({ setModal, notify, addAudit, members, navigate, setNot
 }
 
 function DomainFormModal({ domain, onSave, onClose }: { domain: DomainRecord | undefined; onSave: (domain: DomainRecord) => void; onClose: () => void }) {
-  const [form, setForm] = useState<DomainRecord>(domain ?? { id:`d-${Date.now()}`, name:"", registrar:"Aruba", expiresOn:"", status:"UNKNOWN", owner:"Non assegnato", department:"IT", client:"Interno", tags:[], autoRenew:false, renewalStatus:"Non pianificato", expectedCost:0, actualCost:null, currency:"EUR", lastCheck:"Mai", reliability:"Manuale", source:"Manuale" });
+  const [form, setForm] = useState<DomainRecord>(domain ?? { id:"", name:"", registrar:"Aruba", expiresOn:"", status:"UNKNOWN", owner:"Non assegnato", department:"IT", client:"Interno", tags:[], autoRenew:false, renewalStatus:"Non pianificato", expectedCost:0, actualCost:null, currency:"EUR", lastCheck:"Mai", reliability:"Manuale", source:"Manuale" });
   const [tags, setTags] = useState(form.tags.join(", "));
-  function submit(event: FormEvent) { event.preventDefault(); onSave({...form, name:form.name.trim().toLowerCase(), tags:tags.split(",").map((tag)=>tag.trim()).filter(Boolean)}); }
+  function submit(event: FormEvent) { event.preventDefault(); onSave({...form, id:form.id || `d-${Date.now()}`, name:form.name.trim().toLowerCase(), tags:tags.split(",").map((tag)=>tag.trim()).filter(Boolean)}); }
   return <Modal title={domain ? `Modifica ${domain.name}` : "Aggiungi dominio"} onClose={onClose} wide><form className="modal-grid-form" onSubmit={submit}><label>Dominio<input required placeholder="example.com" value={form.name} onChange={(e)=>setForm({...form,name:e.target.value})}/></label><label>Registrar<select value={form.registrar} onChange={(e)=>setForm({...form,registrar:e.target.value})}>{registrars.map((item)=><option key={item}>{item}</option>)}</select></label><label>Data di scadenza<input type="date" value={form.expiresOn} onChange={(e)=>setForm({...form,expiresOn:e.target.value})}/></label><label>Stato<select value={form.status} onChange={(e)=>setForm({...form,status:e.target.value as DomainStatus})}>{(["ACTIVE","WARNING","URGENT","CRITICAL","EXPIRED","UNKNOWN"] as DomainStatus[]).map((item)=><option key={item} value={item}>{statusLabel(item)}</option>)}</select></label><label>Responsabile<select value={form.owner} onChange={(e)=>setForm({...form,owner:e.target.value})}><option>Non assegnato</option>{owners.map((item)=><option key={item}>{item}</option>)}</select></label><label>Reparto<input value={form.department} onChange={(e)=>setForm({...form,department:e.target.value})}/></label><label>Cliente / progetto<input value={form.client} onChange={(e)=>setForm({...form,client:e.target.value})}/></label><label>Tag<input placeholder="corporate, email" value={tags} onChange={(e)=>setTags(e.target.value)}/></label><label>Costo previsto<input type="number" step="0.01" value={form.expectedCost} onChange={(e)=>setForm({...form,expectedCost:Number(e.target.value)})}/></label><label>Valuta<select value={form.currency} onChange={(e)=>setForm({...form,currency:e.target.value as "EUR"|"USD"})}><option>EUR</option><option>USD</option></select></label><label className="modal-toggle"><input type="checkbox" checked={form.autoRenew} onChange={(e)=>setForm({...form,autoRenew:e.target.checked})}/><span>Rinnovo automatico configurato</span></label><div className="modal-actions"><button type="button" className="secondary-action" onClick={onClose}>Annulla</button><button type="submit" className="primary-action">Salva dominio</button></div></form></Modal>;
 }
 
 function DomainDetailsModal({ domain, onClose, onEdit, onVerify }: { domain: DomainRecord; onClose: () => void; onEdit: () => void; onVerify: () => void }) {
-  return <Modal title={domain.name} onClose={onClose} wide><div className="domain-detail-grid"><div><span>Stato</span><StatusPill status={domain.status}/></div><div><span>Scadenza</span><strong>{domain.expiresOn || "Non verificabile"}</strong></div><div><span>Registrar</span><strong>{domain.registrar}</strong></div><div><span>Auto renew</span><strong>{domain.autoRenew?"Configurato":"Disattivo"}</strong></div><div><span>Responsabile</span><strong>{domain.owner}</strong></div><div><span>Reparto</span><strong>{domain.department}</strong></div><div><span>Cliente</span><strong>{domain.client}</strong></div><div><span>Fonte</span><strong>{domain.source} · {domain.reliability}</strong></div><div><span>Ultima verifica</span><strong>{domain.lastCheck}</strong></div><div><span>Costo previsto</span><strong>{formatMoney(domain.expectedCost,domain.currency)}</strong></div><div className="detail-tags"><span>Tag</span><strong>{domain.tags.map((tag)=><i key={tag}>{tag}</i>)}</strong></div></div><div className="info-callout"><AlertIcon size={18}/><span>Il rinnovo automatico configurato non viene considerato una conferma dell'avvenuto rinnovo.</span></div><div className="modal-actions"><button className="secondary-action" onClick={onVerify}><RefreshIcon size={17}/> Verifica ora</button><button className="primary-action" onClick={onEdit}><EditIcon size={17}/> Modifica</button></div></Modal>;
+  return <Modal title={domain.name} onClose={onClose} wide><div className="domain-detail-grid"><div><span>Stato</span><StatusPill status={domain.status}/></div><div><span>Scadenza</span><strong>{domain.expiresOn || "Non verificabile"}</strong></div><div><span>Registrar</span><strong>{domain.registrar}</strong></div><div><span>Auto renew</span><strong>{domain.autoRenew?"Configurato":"Disattivo"}</strong></div><div><span>Responsabile</span><strong>{domain.owner}</strong></div><div><span>Reparto</span><strong>{domain.department}</strong></div><div><span>Cliente</span><strong>{domain.client}</strong></div><div><span>Fonte</span><strong>{domain.source} · {domain.reliability}</strong></div><div><span>Ultima verifica</span><strong>{domain.lastCheck}</strong></div><div><span>Costo previsto</span><strong>{formatMoney(domain.expectedCost,domain.currency)}</strong></div><div className="detail-tags"><span>Tag</span><strong>{domain.tags.map((tag)=><i key={tag}>{tag}</i>)}</strong></div></div><div className="info-callout"><AlertIcon size={18}/><span>Il rinnovo automatico configurato non viene considerato una conferma dell’avvenuto rinnovo.</span></div><div className="modal-actions"><button className="secondary-action" onClick={onVerify}><RefreshIcon size={17}/> Verifica ora</button><button className="primary-action" onClick={onEdit}><EditIcon size={17}/> Modifica</button></div></Modal>;
 }
 
 function RenewalModal({ renewal, domains, onSave, onClose }: { renewal: RenewalRecord; domains: DomainRecord[]; onSave: (record: RenewalRecord)=>void; onClose:()=>void }) {
@@ -1353,10 +1358,10 @@ function InviteModal({ onClose, onInvite }: { onClose:()=>void; onInvite:(invite
           {personalMessage.trim() ? <blockquote>{personalMessage.trim()}</blockquote> : null}
           <div className="invite-preview-expiry"><ClockIcon size={16}/> Valido per {expiresInDays} giorni</div>
           <button type="button" disabled>Completa registrazione</button>
-          <small className="invite-preview-note">L'email verrà consegnata tramite Postfix con il template grafico Domain Manager.</small>
+          <small className="invite-preview-note">L’email verrà consegnata tramite Postfix con il template grafico Domain Manager.</small>
         </aside>
       </div>
-      <div className="modal-actions invite-modal-actions"><span><MailIcon size={17}/> L'utente verrà aggiunto con stato <strong>Invitato</strong>.</span><div><button type="button" className="secondary-action" onClick={onClose}>Annulla</button><button type="submit" className="primary-action"><MailIcon size={17}/> Invia invito</button></div></div>
+      <div className="modal-actions invite-modal-actions"><span><MailIcon size={17}/> L’utente verrà aggiunto con stato <strong>Invitato</strong>.</span><div><button type="button" className="secondary-action" onClick={onClose}>Annulla</button><button type="submit" className="primary-action"><MailIcon size={17}/> Invia invito</button></div></div>
     </form>
   </Modal>;
 }
@@ -1365,5 +1370,5 @@ function CreateUserModal({ onClose, onCreate }: { onClose:()=>void; onCreate:(na
   const [name,setName]=useState("");
   const [email,setEmail]=useState("");
   const [role,setRole]=useState<MemberRecord["role"]>("Domain Manager");
-  return <Modal title="Registra nuovo utente" onClose={onClose}><form className="modal-stack-form" onSubmit={(event)=>{event.preventDefault();onCreate(name.trim(),email.trim().toLowerCase(),role);}}><label>Nome e cognome<input required value={name} onChange={(event)=>setName(event.target.value)} placeholder="Nome Cognome"/></label><label>Email aziendale<input type="email" required value={email} onChange={(event)=>setEmail(event.target.value)} placeholder="nome@azienda.it"/></label><label>Ruolo<select value={role} onChange={(event)=>setRole(event.target.value as MemberRecord["role"])}><option>Organization Administrator</option><option>Domain Manager</option><option>Viewer</option></select></label><div className="info-callout"><ShieldIcon size={18}/><span>L'utente viene registrato come attivo solo nella demo UI. Password, verifica email e MFA saranno gestiti dal backend senza memorizzare password in chiaro.</span></div><div className="modal-actions"><button type="button" className="secondary-action" onClick={onClose}>Annulla</button><button type="submit" className="primary-action">Registra utente</button></div></form></Modal>;
+  return <Modal title="Registra nuovo utente" onClose={onClose}><form className="modal-stack-form" onSubmit={(event)=>{event.preventDefault();onCreate(name.trim(),email.trim().toLowerCase(),role);}}><label>Nome e cognome<input required value={name} onChange={(event)=>setName(event.target.value)} placeholder="Nome Cognome"/></label><label>Email aziendale<input type="email" required value={email} onChange={(event)=>setEmail(event.target.value)} placeholder="nome@azienda.it"/></label><label>Ruolo<select value={role} onChange={(event)=>setRole(event.target.value as MemberRecord["role"])}><option>Organization Administrator</option><option>Domain Manager</option><option>Viewer</option></select></label><div className="info-callout"><ShieldIcon size={18}/><span>L’utente viene registrato come attivo solo nella demo UI. Password, verifica email e MFA saranno gestiti dal backend senza memorizzare password in chiaro.</span></div><div className="modal-actions"><button type="button" className="secondary-action" onClick={onClose}>Annulla</button><button type="submit" className="primary-action">Registra utente</button></div></form></Modal>;
 }

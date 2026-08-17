@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeftIcon, CheckIcon, ClockIcon, EyeIcon, GlobeIcon, LockIcon, MailIcon, ShieldIcon, UserIcon } from "@/components/icons";
 
@@ -17,7 +17,7 @@ type InvitationDetails = {
 
 export default function AcceptInvitePage() {
   const router = useRouter();
-  const [token, setToken] = useState("");
+  const tokenRef = useRef("");
   const [details, setDetails] = useState<InvitationDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
@@ -40,7 +40,7 @@ export default function AcceptInvitePage() {
 
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get("token") ?? "";
-    setToken(value);
+    tokenRef.current = value;
     if (!value) {
       setDetails({ valid: false, message: "Il link di invito non contiene un token valido." });
       setLoading(false);
@@ -67,7 +67,7 @@ export default function AcceptInvitePage() {
       const response = await fetch("/api/auth/invitations/accept", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, name: name.trim(), password }),
+        body: JSON.stringify({ token: tokenRef.current, name: name.trim(), password }),
       });
       const payload = await response.json() as { registered?: boolean; message?: string };
       setMessage(payload.message || "Impossibile completare la registrazione.");
